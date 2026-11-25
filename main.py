@@ -57,9 +57,21 @@ series = {}
 
 
 def sma(closes, span):
-    if len(closes) < span:
+    window = closes[-span:] if len(closes) >= span else None
+    if window is None:
         return None
-    return sum(closes[-span:]) / span
+    return sum(window) / span
+
+
+def sell_order(sym, qty):
+    return {"side": "sell", "symbol": sym, "qty": qty,
+            "max_slippage_bps": MAX_SLIPPAGE_BPS}
+
+
+def buy_order(sym, notional):
+    return {"side": "buy", "symbol": sym,
+            "notional_quote_units": notional,
+            "max_slippage_bps": MAX_SLIPPAGE_BPS}
 
 
 def on_batch(state, batch):
@@ -106,8 +118,7 @@ def on_batch(state, batch):
         if pos.cost > 0 and value * STOP_DEN <= pos.cost * STOP_NUM:
             exit_all = True
         if exit_all:
-            sells.append({"side": "sell", "symbol": sym, "qty": pos.qty,
-                          "max_slippage_bps": MAX_SLIPPAGE_BPS})
+            sells.append(sell_order(sym, pos.qty))
             sold.add(sym)
             s.last_exit_seq = seq
             s.peak = 0
@@ -116,8 +127,7 @@ def on_batch(state, batch):
               and seq - s.entry_seq >= TRIM_AFTER_BARS):
             half = pos.qty // 2
             if half > 0:
-                sells.append({"side": "sell", "symbol": sym, "qty": half,
-                              "max_slippage_bps": MAX_SLIPPAGE_BPS})
+                sells.append(sell_order(sym, half))
                 s.entry_seq = seq
 
     orders = list(sells[:max_orders])
@@ -147,9 +157,7 @@ def on_batch(state, batch):
             amt = cash
         if amt < min_notional or amt <= 0:
             continue
-        orders.append({"side": "buy", "symbol": sym,
-                       "notional_quote_units": amt,
-                       "max_slippage_bps": MAX_SLIPPAGE_BPS})
+        orders.append(buy_order(sym, amt))
         cash -= amt
 
     # New entries, strongest 6-bar momentum first (ties: symbol order).
@@ -200,9 +208,7 @@ def on_batch(state, batch):
         first = full // 2
         if first < min_notional:
             first = full
-        orders.append({"side": "buy", "symbol": sym,
-                       "notional_quote_units": first,
-                       "max_slippage_bps": MAX_SLIPPAGE_BPS})
+        orders.append(buy_order(sym, first))
         cash -= first
         room -= 1
         s = series[sym]
